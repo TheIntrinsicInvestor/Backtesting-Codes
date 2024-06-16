@@ -1,0 +1,194 @@
+"""
+@author: Brian Liew
+"""
+
+# Define inputs
+
+# Top 10 US companies by market cap
+tickers = [
+    "MSFT",  # Microsoft Corporation
+    "AAPL",  # Apple Inc.
+    "NVDA",  # NVIDIA Corporation
+    "GOOG",  # Alphabet Inc. (Class C)
+    "AMZN",  # Amazon.com, Inc.
+    "META",  # Meta Platforms, Inc.
+    "TSM",  # Taiwan Semiconductor Manufacturing Company Limited
+    "LLY",  # Eli Lilly and Company
+    "AVGO",  # Broadcom Inc.
+    "NVO" # Novo Nordisk A/S
+]
+
+endDateTime = "20240601 00:00:00 US/Eastern"
+duration = "1 Y"
+timeframe = "30 mins"
+
+
+# Import libraries
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from ibapi.client import EClient
+from ibapi.wrapper import EWrapper
+from ibapi.contract import Contract
+import threading
+import time
+import logging
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+class TradeApp(EWrapper, EClient): 
+    def __init__(self): 
+        EClient.__init__(self, self) 
+        self.data = {}
+        
+    def historicalData(self, reqId, bar):
+        if reqId not in self.data:
+            self.data[reqId] = pd.DataFrame([{
+                "Date": bar.date, "Open": bar.open, "High": bar.high, "Low": bar.low, "Close": bar.close, "Volume": bar.volume
+            }])
+        else:
+            new_data = pd.DataFrame([{
+                "Date": bar.date, "Open": bar.open, "High": bar.high, "Low": bar.low, "Close": bar.close, "Volume": bar.volume
+            }])
+            self.data[reqId] = pd.concat([self.data[reqId], new_data], ignore_index=True)
+        logging.info(f"reqID: {reqId}, date: {bar.date}, open: {bar.open}, high: {bar.high}, low: {bar.low}, close: {bar.close}, volume: {bar.volume}")
+
+
+# Define functions
+def usTechStk(symbol, sec_type="STK", currency="USD", exchange="ISLAND"):
+    contract = Contract()
+    contract.symbol = symbol
+    contract.secType = sec_type
+    contract.currency = currency
+    contract.exchange = exchange
+    return contract 
+
+def histData(req_num, contract, endDateTime, duration, candle_size):
+    """Extracts historical data"""
+    app.reqHistoricalData(reqId=req_num, 
+                          contract=contract,
+                          endDateTime=endDateTime,
+                          durationStr=duration,
+                          barSizeSetting=candle_size,
+                          whatToShow='TRADES',
+                          useRTH=1,
+                          formatDate=1,
+                          keepUpToDate=0,
+                          chartOptions=[])
+
+def websocket_con():
+    app.run()
+
+def fetch_data(tickers, endDateTime, duration, timeframe):
+    """Fetch historical data for all tickers in parallel"""
+    threads = []
+    for idx, ticker in enumerate(tickers):
+        contract = usTechStk(ticker)
+        thread = threading.Thread(target=histData, args=(idx, contract, endDateTime, duration, timeframe))
+        threads.append(thread)
+        thread.start()
+        time.sleep(1)  # Slight delay to avoid overloading the API
+    for thread in threads:
+        thread.join()
+    logging.info("Data extraction completed")
+
+def dataDataframe(symbols, TradeApp_obj):
+    """Returns extracted historical data in dataframe format"""
+    df_data = {}
+    for symbol in symbols:
+        df_data[symbol] = pd.DataFrame(TradeApp_obj.data[symbols.index(symbol)])
+        df_data[symbol].set_index("Date", inplace=True)
+    return df_data
+
+def EMA(df, n):
+    """Calculates Exponential Moving Average"""
+    return df['Close'].ewm(span=n, min_periods=n).mean()
+
+def SMA(df, n):
+    """Calculates Simple Moving Average"""
+    return df['Close'].rolling(window=n).mean()
+
+def volatility(df):
+    """Calculates the annualized volatility of the returns"""
+    trading_days = len(df)  # Total number of trading days in the data
+    return df['PnL'].std() * np.sqrt(trading_days)
+
+def sharpe_ratio(df, rf=0.04512):
+    """Calculates the Sharpe Ratio, risk-free rate of 4.512% as of 31/05/24(last trading day)"""
+    trading_days = len(df)  # Total number of trading days in the data
+    return (df['PnL'].mean() * trading_days - rf) / volatility(df)
+
+def max_drawdown(df):
+    """Calculates the maximum drawdown"""
+    cum_return = df['Cumulative PnL']
+    drawdown = cum_return / cum_return.cummax() - 1
+    max_dd = drawdown.min()
+    return max_dd
+
+def trade_metrics(df):
+    """Calculates trade metrics"""
+    trades = df[df['Position'] != df['Position'].shift(1)]
+    num_trades = len(trades) - 1
+    wins = trades[trades['PnL'] > 0]
+    losses = trades[trades['PnL'] <= 0]
+    win_rate = len(wins) / num_trades if num_trades != 0 else 0
+    mean_return = trades['PnL'].mean()
+    mean_return_wins = wins['PnL'].mean() if not wins.empty else 0
+    mean_return_losses = losses['PnL'].mean() if not losses.empty else 0
+    return num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses
+
+def plot_results(df, ticker, sharpe, max_dd, num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses):
+    """Plot the backtesting results"""
+    plt.figure(figsize=(12, 8))
+    plt.plot(df.index, df['Price Ratio'], label='Buy-and-hold returns', color='red')
+    plt.plot(df.index, df['Cumulative PnL'], label='Algorithmic trading returns', color='blue')
+    plt.title(f"Performance Comparison for {ticker}")
+    plt.xlabel("Date")
+    plt.ylabel("Cumulative Returns")
+    plt.legend()
+    plt.figtext(0.15, 0.02, f"Sharpe Ratio: {sharpe:.2f} | Max Drawdown: {max_dd:.2%}")
+    plt.figtext(0.15, 0.04, f"Trades: {num_trades} | Win Rate: {win_rate:.2%} | Mean Return/Trade: {mean_return:.2%}")
+    plt.figtext(0.15, 0.06, f"Mean Return Wins: {mean_return_wins:.2%} | Mean Return Losses: {mean_return_losses:.2%}")
+    plt.show()
+
+
+# Main script
+app = TradeApp()
+app.connect(host='127.0.0.1', port=7497, clientId=23)
+con_thread = threading.Thread(target=websocket_con, daemon=True)
+con_thread.start()
+time.sleep(1)  # Ensures connection is established
+
+fetch_data(tickers, endDateTime, duration, timeframe)
+time.sleep(3)
+historicalData = dataDataframe(tickers, app)
+
+# Print start and end dates for each ticker
+for ticker in tickers:
+    df = historicalData[ticker]
+    start_date = df.index.min()
+    end_date = df.index.max()
+    logging.info(f"{ticker}: Start Date = {start_date}, End Date = {end_date}")
+
+# Backtesting
+for ticker in tickers:
+    logging.info(f"Backtesting {ticker}...")
+    df = historicalData[ticker].copy()
+    df['EMA9'] = EMA(df, 9)
+    df['SMA20'] = SMA(df, 20)
+    df.dropna(inplace=True)
+    
+    df['Signal'] = np.where(df['EMA9'] > df['SMA20'], 1, -1)
+    df['Position'] = df['Signal'].shift(1)  # Shift signal for next period's open
+    df['Entry Price'] = df['Open'] * df['Position']
+    df['PnL'] = df['Position'] * df['Open'].pct_change()  # Calculate PnL based on the signal
+    df['Cumulative PnL'] = (1 + df['PnL']).cumprod()
+    df["Price Ratio"] = df['Close'] / df['Close'].iloc[0]
+
+    sharpe = sharpe_ratio(df)
+    max_dd = max_drawdown(df)
+    num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses = trade_metrics(df)
+    
+    plot_results(df, ticker, sharpe, max_dd, num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses)
