@@ -1,4 +1,6 @@
-# Author: Brian Liew
+"""
+@author: Brian Liew
+"""
 
 # Define inputs
 ticker = "SPY"  # Any ticker of your choice, eg. QQQ/SPY/IWM
