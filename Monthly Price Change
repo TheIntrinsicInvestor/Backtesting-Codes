@@ -1,0 +1,138 @@
+# Author: Brian Liew
+
+# Define inputs
+ticker = "SPY"  # Any ticker of your choice, eg. QQQ/SPY/IWM
+endDateTime = "20240631 00:00:00 US/Eastern"
+duration = "15 Y"
+timeframe = "1 month"
+
+# Import libraries
+import pandas as pd
+import matplotlib.pyplot as plt
+from ibapi.client import EClient
+from ibapi.wrapper import EWrapper
+from ibapi.contract import Contract
+import threading
+import time
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+class TradeApp(EWrapper, EClient): 
+    def __init__(self): 
+        EClient.__init__(self, self) 
+        self.data = pd.DataFrame()
+
+    def historicalData(self, reqId, bar):
+        new_data = pd.DataFrame([{
+            "Date": bar.date, "Open": bar.open, "High": bar.high, "Low": bar.low, "Close": bar.close, "Volume": bar.volume
+        }])
+        self.data = pd.concat([self.data, new_data], ignore_index=True)
+        logging.info(f"reqID: {reqId}, date: {bar.date}, open: {bar.open}, high: {bar.high}, low: {bar.low}, close: {bar.close}, volume: {bar.volume}")
+
+def usTechStk(symbol, sec_type="STK", currency="USD", exchange="ISLAND"):
+    contract = Contract()
+    contract.symbol = symbol
+    contract.secType = sec_type
+    contract.currency = currency
+    contract.exchange = exchange
+    return contract 
+
+def histData(req_num, contract, endDateTime, duration, candle_size):
+    """Extracts historical data"""
+    app.reqHistoricalData(reqId=req_num, 
+                          contract=contract,
+                          endDateTime=endDateTime,
+                          durationStr=duration,
+                          barSizeSetting=candle_size,
+                          whatToShow='TRADES',
+                          useRTH=1,
+                          formatDate=1,
+                          keepUpToDate=0,
+                          chartOptions=[])
+
+def websocket_con():
+    app.run()
+
+# Main script
+app = TradeApp()
+app.connect(host='127.0.0.1', port=7497, clientId=23)
+con_thread = threading.Thread(target=websocket_con, daemon=True)
+con_thread.start()
+time.sleep(1)  # Ensures connection is established
+
+# Fetch historical data
+contract = usTechStk(ticker)
+histData(0, contract, endDateTime, duration, timeframe)
+time.sleep(3)
+
+# Process data
+df = app.data
+df['Date'] = pd.to_datetime(df['Date'])
+df.set_index('Date', inplace=True)
+
+# Calculate monthly percentage change
+df['Year'] = df.index.year
+df['Month'] = df.index.month
+df['Pct_Change'] = (df['Close'] - df['Open']) / df['Open'] * 100
+
+final_df = df.pivot_table(index='Month', columns='Year', values='Pct_Change', aggfunc='mean')
+
+# Calculate the number of positive and negative changes
+df['Change_Type'] = df['Pct_Change'].apply(lambda x: 'Positive' if x > 0 else 'Negative')
+change_counts = df['Change_Type'].value_counts()
+positive_changes = change_counts.get('Positive', 0)
+negative_changes = change_counts.get('Negative', 0)
+
+# Calculate the mean of positive and negative changes
+positive_pctchanges = df[df['Change_Type'] == 'Positive']['Pct_Change']
+negative_pctchanges = df[df['Change_Type'] == 'Negative']['Pct_Change']
+mean_positive_change = positive_pctchanges.mean()
+mean_negative_change = negative_pctchanges.mean()
+
+# Plot the main results
+graph_df = df['Pct_Change']
+graph_df.plot(kind='line', figsize=(12, 8), marker='.')
+plt.title(f'Monthly Percentage Change of {ticker} for the Past 15 Years')
+plt.xlabel('Year')
+plt.ylabel('Percentage Change/%')
+plt.axhline(y=0, color='red', linewidth=1)
+plt.tight_layout()
+plt.figtext(0.1, -0.01, f"Number of net positive months: {positive_changes} | Number of net negative months: {negative_changes}")
+plt.figtext(0.1, -0.035, f"Mean positive change: {mean_positive_change:.3f}% | Mean negative change: {mean_negative_change:.3f}%")
+plt.show()
+
+# Additional Graphs
+# Number of positive and negative monthly price changes against month
+monthly_counts = df.pivot_table(index='Month', values='Pct_Change', aggfunc=lambda x: (x > 0).sum())
+monthly_counts['Negative'] = df.pivot_table(index='Month', values='Pct_Change', aggfunc=lambda x: (x < 0).sum())
+monthly_counts.columns = ['Positive', 'Negative']
+
+# Convert month numbers to month names
+monthly_counts.index = monthly_counts.index.map({
+    1: 'January', 2: 'February', 3: 'March', 4: 'April', 5: 'May', 6: 'June', 
+    7: 'July', 8: 'August', 9: 'September', 10: 'October', 11: 'November', 12: 'December'
+})
+
+# Plot with month names
+monthly_counts.plot(kind='bar', figsize=(12, 8), width=0.8)
+plt.title(f'Number of Positive and Negative {ticker} Monthly Price Changes by Month')
+plt.xlabel('Month')
+plt.ylabel('Count')
+plt.legend(title='Percentage Change')
+plt.tight_layout()
+plt.show()
+
+# Number of positive and negative monthly price changes against year
+yearly_counts = df.pivot_table(index='Year', values='Pct_Change', aggfunc=lambda x: (x > 0).sum())
+yearly_counts['Negative'] = df.pivot_table(index='Year', values='Pct_Change', aggfunc=lambda x: (x < 0).sum())
+yearly_counts.columns = ['Positive', 'Negative']
+
+yearly_counts.plot(kind='bar', figsize=(12, 8), width=0.8)
+plt.title(f'Number of Positive and Negative {ticker} Monthly Price Changes by Year (Note 2009 and 2024 only has 6 months each)')
+plt.xlabel('Year')
+plt.ylabel('Count')
+plt.legend(title='Percentage Change')
+plt.tight_layout()
+plt.show()
