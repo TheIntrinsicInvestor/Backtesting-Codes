@@ -1,7 +1,7 @@
 # Author: Brian Liew
 
 # Define inputs
-ticker = "IWM"  # Any ticker of your choice, eg. QQQ/SPY/IWM
+ticker = "SPY"  # Any ticker of your choice, eg. QQQ/SPY/IWM
 endDateTime = "20240631 00:00:00 US/Eastern"
 duration = "15 Y"
 timeframe = "1 month"
