@@ -1,9 +1,7 @@
-"""
-@author: Brian Liew
-"""
+# Author: Brian Liew
 
 # Define inputs
-ticker = "SPY"  # Any ticker of your choice, eg. QQQ/SPY/IWM
+ticker = "IWM"  # Any ticker of your choice, eg. QQQ/SPY/IWM
 endDateTime = "20240631 00:00:00 US/Eastern"
 duration = "15 Y"
 timeframe = "1 month"
@@ -93,6 +91,31 @@ negative_pctchanges = df[df['Change_Type'] == 'Negative']['Pct_Change']
 mean_positive_change = positive_pctchanges.mean()
 mean_negative_change = negative_pctchanges.mean()
 
+
+# Calculate price changes for 1 year, 5 years, 10 years, and 15 years
+def calculate_price_changes(df, years):
+    results = {}
+    for year in years:
+        start_year = year * 12
+        start_price = df.tail(start_year)['Open'].iloc[0]
+        end_price = df.tail(start_year)['Close'].iloc[-1]
+        pct_change = ((end_price - start_price) / start_price) * 100
+        results[f'{year}_years'] = pct_change
+    return results
+
+years = [1, 5, 10, 15]
+price_changes = calculate_price_changes(df, years)
+
+# Display the results in the desired format
+output = "Price Change - "
+for period, change in price_changes.items():
+    period_label = period.replace('_years', 'Y')
+    output += f"{period_label}: {change:.2f}% | "
+
+# Remove the trailing " | "
+output = output.rstrip(" | ")
+
+
 # Plot the main results
 graph_df = df['Pct_Change']
 graph_df.plot(kind='line', figsize=(12, 8), marker='.')
@@ -101,8 +124,9 @@ plt.xlabel('Year')
 plt.ylabel('Percentage Change/%')
 plt.axhline(y=0, color='red', linewidth=1)
 plt.tight_layout()
-plt.figtext(0.1, -0.01, f"Number of net positive months: {positive_changes} | Number of net negative months: {negative_changes}")
-plt.figtext(0.1, -0.035, f"Mean positive change: {mean_positive_change:.3f}% | Mean negative change: {mean_negative_change:.3f}%")
+plt.figtext(0.1, -0.01, output)
+plt.figtext(0.1, -0.035, f"Number of net positive months: {positive_changes} | Number of net negative months: {negative_changes}")
+plt.figtext(0.1, -0.06, f"Mean positive change: {mean_positive_change:.3f}% | Mean negative change: {mean_negative_change:.3f}%")
 plt.show()
 
 # Additional Graphs
