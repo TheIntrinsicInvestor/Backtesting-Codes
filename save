@@ -4,15 +4,14 @@
 
 # Define inputs
 
-# Top 5 US companies by market cap
 tickers = [
-    "AAPL",  # Apple Inc.
+    "AAPL",  # Any ticker of your choice
 ]
 
-endDateTime = "20240701 00:00:00 US/Eastern"
+endDateTime = "20240801 00:00:00 US/Eastern"
 duration = "1 Y"
-timeframe = "15 mins"
-commission_fee = 0.005  # Define a commission fee per trade, e.g., 0.5% of the traded amount
+timeframe = "30 mins"
+commission_fee = 0.01  # Define a commission fee per trade, e.g., 1% of the traded amount
 
 # Import libraries
 import numpy as np
@@ -142,7 +141,9 @@ def trade_metrics(df):
     mean_return = trades['PnL after Trade Cost'].mean()
     mean_return_wins = wins['PnL after Trade Cost'].mean() if not wins.empty else 0
     mean_return_losses = losses['PnL after Trade Cost'].mean() if not losses.empty else 0
-    return num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses
+    algo1yr = (df['Cumulative PnL'].iloc[-1]) * 100 - 100
+    buy1yr = (df['Price Ratio'].iloc[-1]) * 100 - 100
+    return num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses, algo1yr, buy1yr
 
 def plot_results(df, ticker, sharpe, max_dd, num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses):
     """Plot the backtesting results"""
@@ -154,9 +155,10 @@ def plot_results(df, ticker, sharpe, max_dd, num_trades, win_rate, mean_return, 
     plt.ylabel("Cumulative Returns")
     plt.legend()
     plt.tight_layout()
-    plt.figtext(0.1, 0, f"Sharpe Ratio: {sharpe:.2f} | Max Drawdown: {max_dd:.2%}")
-    plt.figtext(0.1, -0.025, f"Number of Trades: {num_trades} | Win Rate: {win_rate:.2%}")
-    plt.figtext(0.1, -0.05, f"Average Return: {mean_return:.2%} | Average Return on Wins: {mean_return_wins:.2%} | Average Return on Losses: {mean_return_losses:.2%}")
+    plt.figtext(0.1, 0, f"1Y Buy-and-hold Returns: {buy1yr:.2f}% | 1Y Algorithmic Trading Returns: {algo1yr:.2f}%")
+    plt.figtext(0.1, -0.025, f"Sharpe Ratio: {sharpe:.2f} | Max Drawdown: {max_dd:.2%}")
+    plt.figtext(0.1, -0.05, f"Number of Trades: {num_trades} | Win Rate: {win_rate:.2%}")
+    plt.figtext(0.1, -0.075, f"Average Return: {mean_return:.2%} | Average Return on Wins: {mean_return_wins:.2%} | Average Return on Losses: {mean_return_losses:.2%}")
     plt.show()
 
 # Main script
@@ -167,7 +169,7 @@ con_thread.start()
 time.sleep(1)  # Ensures connection is established
 
 fetch_data(tickers, endDateTime, duration, timeframe)
-time.sleep(7)
+time.sleep(8)
 historicalData = dataDataframe(tickers, app)
 
 # Print start and end dates for each ticker
@@ -190,8 +192,8 @@ for ticker in tickers:
     
     # Define signals
     df['Signal'] = np.where(
-        (df['RSI'] < 70) &
         (df['Close'] > df['Lower Band']) &
+        (df['RSI'] < 70) &
         (df['EMA_short'] > df['EMA_long']), 1, 0
     )
     
@@ -210,6 +212,6 @@ for ticker in tickers:
     # Calculate metrics and plot results
     sharpe = sharpe_ratio(df)
     max_dd = max_drawdown(df)
-    num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses = trade_metrics(df)
+    num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses, algo1yr, buy1yr = trade_metrics(df)
     
     plot_results(df, ticker, sharpe, max_dd, num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses)
