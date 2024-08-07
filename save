@@ -6,13 +6,13 @@
 
 # Top 5 US companies by market cap
 tickers = [
-    "DIS",  # Apple Inc.
+    "AAPL",  # Apple Inc.
 ]
 
 endDateTime = "20240701 00:00:00 US/Eastern"
 duration = "1 Y"
-timeframe = "30 mins"
-commission_fee = 0.01  # Define a commission fee per trade, e.g., 1% of the traded amount
+timeframe = "15 mins"
+commission_fee = 0.005  # Define a commission fee per trade, e.g., 0.5% of the traded amount
 
 # Import libraries
 import numpy as np
@@ -91,22 +91,6 @@ def dataDataframe(symbols, TradeApp_obj):
         df_data[symbol].set_index("Date", inplace=True)
     return df_data
 
-def MACD(df, fast=12, slow=26, signal=9):
-    """Calculates MACD"""
-    df['EMA12'] = df['Close'].ewm(span=fast, min_periods=slow).mean()
-    df['EMA26'] = df['Close'].ewm(span=slow, min_periods=slow).mean()
-    df['MACD'] = df['EMA12'] - df['EMA26']
-    df['Signal_Line'] = df['MACD'].ewm(span=signal, min_periods=signal).mean()
-    return df
-
-def stochastic(df, k=14, d=3):
-    """Calculates Stochastic Oscillator"""
-    df['L14'] = df['Low'].rolling(window=k).min()
-    df['H14'] = df['High'].rolling(window=k).max()
-    df['%K'] = 100 * ((df['Close'] - df['L14']) / (df['H14'] - df['L14']))
-    df['%D'] = df['%K'].rolling(window=d).mean()
-    return df
-
 def RSI(df, period=14):
     """Calculates RSI"""
     delta = df['Close'].diff()
@@ -124,21 +108,11 @@ def BollingerBands(df, n=20, k=2):
     df['Lower Band'] = df['SMA'] - (k * df['STD'])
     return df
 
-def EMA_cross(df, short_period=12, long_period=26):
+def EMA_cross(df, short_period=9, long_period=20):
     """Calculates EMA Crossovers"""
     df['EMA_short'] = df['Close'].ewm(span=short_period, adjust=False).mean()
     df['EMA_long'] = df['Close'].ewm(span=long_period, adjust=False).mean()
     df['EMA_Signal'] = np.where(df['EMA_short'] > df['EMA_long'], 1, 0)
-    return df
-
-
-def ATR(df, period=14):
-    """Calculates ATR"""
-    df['High-Low'] = df['High'] - df['Low']
-    df['High-Close'] = np.abs(df['High'] - df['Close'].shift())
-    df['Low-Close'] = np.abs(df['Low'] - df['Close'].shift())
-    df['TR'] = df[['High-Low', 'High-Close', 'Low-Close']].max(axis=1)
-    df['ATR'] = df['TR'].rolling(window=period).mean()
     return df
 
 def volatility(df):
@@ -209,26 +183,20 @@ for ticker in tickers:
     df = historicalData[ticker].copy()
     
     # Adding indicators
-    df = MACD(df)
-    df = stochastic(df)
     df = RSI(df)
     df = BollingerBands(df)
     df = EMA_cross(df)
-    df = ATR(df)
     df.dropna(inplace=True)
     
     # Define signals
     df['Signal'] = np.where(
-        (df['MACD'] > df['Signal_Line']) &
-        (df['%K'] > 30) &
-        (df['%K'] > df['%K'].shift(1)) &
-        (df['RSI'] < 80) &
+        (df['RSI'] < 70) &
         (df['Close'] > df['Lower Band']) &
         (df['EMA_short'] > df['EMA_long']), 1, 0
     )
     
     df['Position'] = df['Signal'].shift(1)
-    df['Close_Signal'] = np.where(df['MACD'] < df['Signal_Line'], 1, 0)
+    df['Close_Signal'] = np.where(df['Close'] > df['Upper Band'], 1, 0)
     df['Position'] = np.where(df['Close_Signal'], 0, df['Position'])
     df['Entry Price'] = df['Open'] * df['Position']
     
