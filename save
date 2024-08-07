@@ -1,0 +1,247 @@
+"""
+@author: Brian Liew
+"""
+
+# Define inputs
+
+# Top 5 US companies by market cap
+tickers = [
+    "DIS",  # Apple Inc.
+]
+
+endDateTime = "20240701 00:00:00 US/Eastern"
+duration = "1 Y"
+timeframe = "30 mins"
+commission_fee = 0.01  # Define a commission fee per trade, e.g., 1% of the traded amount
+
+# Import libraries
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from ibapi.client import EClient
+from ibapi.wrapper import EWrapper
+from ibapi.contract import Contract
+import threading
+import time
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+class TradeApp(EWrapper, EClient): 
+    def __init__(self): 
+        EClient.__init__(self, self) 
+        self.data = {}
+        
+    def historicalData(self, reqId, bar):
+        if reqId not in self.data:
+            self.data[reqId] = pd.DataFrame([{
+                "Date": bar.date, "Open": bar.open, "High": bar.high, "Low": bar.low, "Close": bar.close, "Volume": bar.volume
+            }])
+        else:
+            new_data = pd.DataFrame([{
+                "Date": bar.date, "Open": bar.open, "High": bar.high, "Low": bar.low, "Close": bar.close, "Volume": bar.volume
+            }])
+            self.data[reqId] = pd.concat([self.data[reqId], new_data], ignore_index=True)
+        logging.info(f"reqID: {reqId}, date: {bar.date}, open: {bar.open}, high: {bar.high}, low: {bar.low}, close: {bar.close}, volume: {bar.volume}")
+
+# Define functions
+def usTechStk(symbol, sec_type="STK", currency="USD", exchange="ISLAND"):
+    contract = Contract()
+    contract.symbol = symbol
+    contract.secType = sec_type
+    contract.currency = currency
+    contract.exchange = exchange
+    return contract 
+
+def histData(req_num, contract, endDateTime, duration, candle_size):
+    """Extracts historical data"""
+    app.reqHistoricalData(reqId=req_num, 
+                          contract=contract,
+                          endDateTime=endDateTime,
+                          durationStr=duration,
+                          barSizeSetting=candle_size,
+                          whatToShow='TRADES',
+                          useRTH=1,
+                          formatDate=1,
+                          keepUpToDate=0,
+                          chartOptions=[])
+
+def websocket_con():
+    app.run()
+
+def fetch_data(tickers, endDateTime, duration, timeframe):
+    """Fetch historical data for all tickers in parallel"""
+    threads = []
+    for idx, ticker in enumerate(tickers):
+        contract = usTechStk(ticker)
+        thread = threading.Thread(target=histData, args=(idx, contract, endDateTime, duration, timeframe))
+        threads.append(thread)
+        thread.start()
+        time.sleep(1)  # Slight delay to avoid overloading the API
+    for thread in threads:
+        thread.join()
+    logging.info("Data extraction completed")
+
+def dataDataframe(symbols, TradeApp_obj):
+    """Returns extracted historical data in dataframe format"""
+    df_data = {}
+    for symbol in symbols:
+        df_data[symbol] = pd.DataFrame(TradeApp_obj.data[symbols.index(symbol)])
+        df_data[symbol].set_index("Date", inplace=True)
+    return df_data
+
+def MACD(df, fast=12, slow=26, signal=9):
+    """Calculates MACD"""
+    df['EMA12'] = df['Close'].ewm(span=fast, min_periods=slow).mean()
+    df['EMA26'] = df['Close'].ewm(span=slow, min_periods=slow).mean()
+    df['MACD'] = df['EMA12'] - df['EMA26']
+    df['Signal_Line'] = df['MACD'].ewm(span=signal, min_periods=signal).mean()
+    return df
+
+def stochastic(df, k=14, d=3):
+    """Calculates Stochastic Oscillator"""
+    df['L14'] = df['Low'].rolling(window=k).min()
+    df['H14'] = df['High'].rolling(window=k).max()
+    df['%K'] = 100 * ((df['Close'] - df['L14']) / (df['H14'] - df['L14']))
+    df['%D'] = df['%K'].rolling(window=d).mean()
+    return df
+
+def RSI(df, period=14):
+    """Calculates RSI"""
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    RS = gain / loss
+    df['RSI'] = 100 - (100 / (1 + RS))
+    return df
+
+def BollingerBands(df, n=20, k=2):
+    """Calculates Bollinger Bands"""
+    df['SMA'] = df['Close'].rolling(window=n).mean()
+    df['STD'] = df['Close'].rolling(window=n).std()
+    df['Upper Band'] = df['SMA'] + (k * df['STD'])
+    df['Lower Band'] = df['SMA'] - (k * df['STD'])
+    return df
+
+def EMA_cross(df, short_period=12, long_period=26):
+    """Calculates EMA Crossovers"""
+    df['EMA_short'] = df['Close'].ewm(span=short_period, adjust=False).mean()
+    df['EMA_long'] = df['Close'].ewm(span=long_period, adjust=False).mean()
+    df['EMA_Signal'] = np.where(df['EMA_short'] > df['EMA_long'], 1, 0)
+    return df
+
+
+def ATR(df, period=14):
+    """Calculates ATR"""
+    df['High-Low'] = df['High'] - df['Low']
+    df['High-Close'] = np.abs(df['High'] - df['Close'].shift())
+    df['Low-Close'] = np.abs(df['Low'] - df['Close'].shift())
+    df['TR'] = df[['High-Low', 'High-Close', 'Low-Close']].max(axis=1)
+    df['ATR'] = df['TR'].rolling(window=period).mean()
+    return df
+
+def volatility(df):
+    """Calculates the annualized volatility of the returns"""
+    trading_days = len(df)  # Total number of trading days in the data
+    return df['PnL after Trade Cost'].std() * np.sqrt(trading_days)
+
+def sharpe_ratio(df, rf=0.04512):
+    """Calculates the Sharpe Ratio, risk-free rate of 4.512% as of 31/05/24(last trading day)"""
+    trading_days = len(df)  # Total number of trading days in the data
+    return (df['PnL after Trade Cost'].mean() * trading_days - rf) / volatility(df)
+
+def max_drawdown(df):
+    """Calculates the maximum drawdown"""
+    cum_return = df['Cumulative PnL']
+    drawdown = cum_return / cum_return.cummax() - 1
+    max_dd = drawdown.min()
+    return max_dd
+
+def trade_metrics(df):
+    """Calculates trade metrics"""
+    trades = df[df['Position'] != df['Position'].shift(1)]
+    num_trades = len(trades) - 1
+    wins = trades[trades['PnL after Trade Cost'] > 0]
+    losses = trades[trades['PnL after Trade Cost'] <= 0]
+    win_rate = len(wins) / num_trades if num_trades != 0 else 0
+    mean_return = trades['PnL after Trade Cost'].mean()
+    mean_return_wins = wins['PnL after Trade Cost'].mean() if not wins.empty else 0
+    mean_return_losses = losses['PnL after Trade Cost'].mean() if not losses.empty else 0
+    return num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses
+
+def plot_results(df, ticker, sharpe, max_dd, num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses):
+    """Plot the backtesting results"""
+    plt.figure(figsize=(12, 8))
+    plt.plot(df.index, df['Price Ratio'], label='Buy-and-hold returns', color='red')
+    plt.plot(df.index, df['Cumulative PnL'], label='Algorithmic trading returns', color='blue')
+    plt.title(f"Performance Comparison for {ticker}")
+    plt.xlabel("Date")
+    plt.ylabel("Cumulative Returns")
+    plt.legend()
+    plt.tight_layout()
+    plt.figtext(0.1, 0, f"Sharpe Ratio: {sharpe:.2f} | Max Drawdown: {max_dd:.2%}")
+    plt.figtext(0.1, -0.025, f"Number of Trades: {num_trades} | Win Rate: {win_rate:.2%}")
+    plt.figtext(0.1, -0.05, f"Average Return: {mean_return:.2%} | Average Return on Wins: {mean_return_wins:.2%} | Average Return on Losses: {mean_return_losses:.2%}")
+    plt.show()
+
+# Main script
+app = TradeApp()
+app.connect(host='127.0.0.1', port=7497, clientId=23)
+con_thread = threading.Thread(target=websocket_con, daemon=True)
+con_thread.start()
+time.sleep(1)  # Ensures connection is established
+
+fetch_data(tickers, endDateTime, duration, timeframe)
+time.sleep(7)
+historicalData = dataDataframe(tickers, app)
+
+# Print start and end dates for each ticker
+for ticker in tickers:
+    df = historicalData[ticker]
+    start_date = df.index.min()
+    end_date = df.index.max()
+    logging.info(f"{ticker}: Start Date = {start_date}, End Date = {end_date}")
+
+# Backtesting
+for ticker in tickers:
+    logging.info(f"Backtesting {ticker}...")
+    df = historicalData[ticker].copy()
+    
+    # Adding indicators
+    df = MACD(df)
+    df = stochastic(df)
+    df = RSI(df)
+    df = BollingerBands(df)
+    df = EMA_cross(df)
+    df = ATR(df)
+    df.dropna(inplace=True)
+    
+    # Define signals
+    df['Signal'] = np.where(
+        (df['MACD'] > df['Signal_Line']) &
+        (df['%K'] > 30) &
+        (df['%K'] > df['%K'].shift(1)) &
+        (df['RSI'] < 80) &
+        (df['Close'] > df['Lower Band']) &
+        (df['EMA_short'] > df['EMA_long']), 1, 0
+    )
+    
+    df['Position'] = df['Signal'].shift(1)
+    df['Close_Signal'] = np.where(df['MACD'] < df['Signal_Line'], 1, 0)
+    df['Position'] = np.where(df['Close_Signal'], 0, df['Position'])
+    df['Entry Price'] = df['Open'] * df['Position']
+    
+    # Calculate PnL considering commission fee
+    df['PnL'] = (df['Position'].shift(1) * df['Close'].pct_change())
+    df['Trade Cost'] = np.where(df['Position'] != df['Position'].shift(1), abs(df['Close'].pct_change()) * commission_fee, 0)
+    df['PnL after Trade Cost'] = df['PnL'] - df['Trade Cost']
+    df['Cumulative PnL'] = (1 + df['PnL after Trade Cost']).cumprod()
+    df["Price Ratio"] = df['Close'] / df['Close'].iloc[0]
+    
+    # Calculate metrics and plot results
+    sharpe = sharpe_ratio(df)
+    max_dd = max_drawdown(df)
+    num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses = trade_metrics(df)
+    
+    plot_results(df, ticker, sharpe, max_dd, num_trades, win_rate, mean_return, mean_return_wins, mean_return_losses)
