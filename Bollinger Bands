@@ -11,7 +11,7 @@ tickers = [
 endDateTime = "20240801 00:00:00 US/Eastern"
 duration = "1 Y"
 timeframe = "30 mins"
-commission_fee = 0.01  # Define a commission fee per trade, e.g., 1% of the traded amount
+commission_fee = 0.01  # Define a commission fee per trade, e.g. 1% of the traded amount
 
 # Import libraries
 import numpy as np
