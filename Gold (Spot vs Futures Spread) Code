@@ -1,0 +1,43 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# --- Download 1 year of daily data ---
+futures = yf.download("GC=F", period="1y", interval="1d", group_by='ticker', progress=False)
+gld = yf.download("GLD", period="1y", interval="1d", group_by='ticker', progress=False)
+
+# --- Extract 'Close' prices ---
+futures_close = futures["GC=F"]["Close"]
+gld_close = gld["GLD"]["Close"]
+
+# --- Combine and align ---
+df = pd.DataFrame({
+    "Gold Futures": futures_close,
+    "GLD ETF": gld_close
+}).dropna()
+
+# --- Normalize to 100 for % growth ---
+df_norm = df / df.iloc[0] * 100
+
+# --- Calculate the difference in % growth (Futures - GLD) ---
+df_norm["Difference (%)"] = df_norm["Gold Futures"] - df_norm["GLD ETF"]
+
+# --- Plot the difference ---
+plt.figure(figsize=(14, 7), dpi=120)
+plt.plot(df_norm.index, df_norm["Difference (%)"], color="#ff8800", linewidth=1.8)
+
+# Format x-axis
+plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+plt.xticks(rotation=45)
+
+# Style
+plt.axhline(0, color='gray', linestyle='--', linewidth=1)
+plt.title("Daily Difference in % Growth: Gold Futures vs GLD ETF (Past 1 Year)", fontsize=16, fontweight='bold')
+plt.xlabel("Month", fontsize=12)
+plt.ylabel("Percentage Point Difference", fontsize=12)
+plt.grid(True, linestyle='--', linewidth=0.5, alpha=0.7)
+plt.tight_layout()
+
+plt.show()
