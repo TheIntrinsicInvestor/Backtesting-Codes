@@ -1,0 +1,64 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+# --- Download 1 year of daily data ---
+futures = yf.download("GC=F", period="1y", interval="1d", group_by='ticker', progress=False)
+gld = yf.download("GLD", period="1y", interval="1d", group_by='ticker', progress=False)
+
+# --- Extract 'Close' prices ---
+futures_close = futures["GC=F"]["Close"]
+gld_close = gld["GLD"]["Close"]
+
+# --- Combine and align ---
+df = pd.DataFrame({
+    "Gold Futures": futures_close,
+    "GLD ETF": gld_close
+}).dropna()
+
+# --- Normalize to 100 for % growth ---
+df_norm = df / df.iloc[0] * 100
+
+# --- Calculate the difference in % growth (Futures - GLD) ---
+df_norm["Difference (%)"] = df_norm["Gold Futures"] - df_norm["GLD ETF"]
+
+# --- Calculate daily GLD % change ---
+df_norm["GLD % Change"] = df["GLD ETF"].pct_change() * 100
+
+# --- Trading Signal Logic ---
+df_norm["Signal"] = 0
+df_norm.loc[df_norm["Difference (%)"] > 0.3, "Signal"] = 1   # Long GLD
+df_norm.loc[df_norm["Difference (%)"] < -0.3, "Signal"] = -1 # Short GLD
+df_norm["Shifted Signal"] = df_norm["Signal"].shift(1).fillna(0)
+
+# --- Strategy Return Calculation ---
+df_norm["Strategy Return"] = df_norm["Shifted Signal"] * df_norm["GLD % Change"]
+df_norm["Cumulative Strategy Return"] = (df_norm["Strategy Return"] / 100 + 1).cumprod()
+df_norm["Cumulative Buy and Hold"] = (df_norm["GLD % Change"] / 100 + 1).cumprod()
+
+# --- Performance Metrics ---
+strategy_returns = df_norm["Strategy Return"] / 100
+total_return = df_norm["Cumulative Strategy Return"].iloc[-1] - 1
+volatility = strategy_returns.std() * np.sqrt(252)
+sharpe_ratio = total_return / volatility if volatility != 0 else np.nan
+
+# --- Plot the strategy performance ---
+plt.figure(figsize=(14, 7), dpi=120)
+plt.plot(df_norm.index, df_norm["Cumulative Strategy Return"], label="Strategy", color="green", linewidth=1.8)
+plt.plot(df_norm.index, df_norm["Cumulative Buy and Hold"], label="Buy and Hold GLD", color="blue")
+
+# --- Add metrics to the chart ---
+plt.title("Cumulative Return: Strategy vs Buy and Hold (GLD)", fontsize=16, fontweight='bold')
+plt.xlabel("Date", fontsize=12)
+plt.ylabel("Cumulative Return (Indexed)", fontsize=12)
+plt.grid(True, linestyle='--', linewidth=0.5, alpha=0.7)
+plt.legend(loc="upper left")
+
+# Add metrics as text on the chart
+textstr = f"Total Return: {total_return:.2%}\nVolatility: {volatility:.2%}\nSharpe Ratio: {sharpe_ratio:.2f}"
+plt.text(0.02, 0.70, textstr, transform=plt.gca().transAxes,
+         fontsize=12, verticalalignment='top', bbox=dict(facecolor='white', alpha=0.75))
+
+plt.tight_layout()
+plt.show()
